@@ -12,8 +12,11 @@
     --purple-light: #9B7FE8;
     --gold: #F2B705;
     --river: #3E8FB0;
-    --bg: #F7F5FC;
-    --text: #241436;
+    --bg: #0A0A0C;
+    --card-bg: #17151C;
+    --card-border: #2A2732;
+    --text: #F2F0F7;
+    --text-muted: #9A96A8;
     --danger: #E24C4B;
     --success: #2AAE6C;
   }
@@ -45,12 +48,13 @@
 
   main { max-width: 480px; margin: 0 auto; padding: 0 16px; }
   .card {
-    background: #fff;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 14px;
     padding: 18px;
     margin-top: -34px;
     margin-bottom: 14px;
-    box-shadow: 0 4px 16px rgba(36,20,54,0.08);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
     position: relative;
     z-index: 2;
   }
@@ -67,9 +71,9 @@
   }
   .btn-purple { background: var(--purple); color: #fff; }
   .btn-gold { background: var(--gold); color: var(--purple-deep); }
-  .btn-outline { background: #fff; border: 2px solid var(--purple); color: var(--purple); }
+  .btn-outline { background: transparent; border: 2px solid var(--purple-light); color: var(--purple-light); }
   .btn-danger { background: var(--danger); color: #fff; }
-  .btn-flat { background: #F0EBFA; color: var(--purple-deep); }
+  .btn-flat { background: #2A2440; color: var(--purple-light); }
   button { font-family: inherit; }
 
   .pass-card { display: flex; justify-content: space-between; align-items: center; }
@@ -80,18 +84,18 @@
   .pass-active { background: #E3F7EC; color: var(--success); }
   .pass-expired { background: #FDEAEA; color: var(--danger); }
 
-  label { display: block; font-size: 13px; font-weight: 600; color: #555; margin: 12px 0 6px; }
+  label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin: 12px 0 6px; }
   label:first-child { margin-top: 0; }
   input, select {
-    width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;
-    font-size: 15px; font-family: inherit;
+    width: 100%; padding: 12px; border: 1px solid var(--card-border); border-radius: 8px;
+    font-size: 15px; font-family: inherit; background: #0F0D14; color: var(--text);
   }
   input:focus, select:focus { outline: none; border-color: var(--purple); }
 
-  .req-card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.06); }
+  .req-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.3); }
   .req-top { display: flex; justify-content: space-between; margin-bottom: 8px; }
-  .req-fare { color: var(--purple); font-weight: 700; font-size: 18px; }
-  .req-route { font-size: 14px; color: #555; margin: 6px 0; line-height: 1.6; }
+  .req-fare { color: var(--purple-light); font-weight: 700; font-size: 18px; }
+  .req-route { font-size: 14px; color: var(--text-muted); margin: 6px 0; line-height: 1.6; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
   .pickup-dot { background: var(--river); }
   .drop-dot { background: var(--gold); }
@@ -100,7 +104,7 @@
 
   .status-badge {
     display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 11px;
-    font-weight: 700; text-transform: uppercase; background: #F0EBFA; color: var(--purple); margin-bottom: 10px;
+    font-weight: 700; text-transform: uppercase; background: #2A2440; color: var(--purple-light); margin-bottom: 10px;
   }
   .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
   .action-grid a, .action-grid button {
@@ -112,41 +116,41 @@
   .btn-map { background: #FFF3E0; color: #C77700; }
   .btn-cancel { background: #FDEAEA; color: var(--danger); }
 
-  .empty-state { text-align: center; padding: 40px 20px; color: #999; font-size: 14px; }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 14px; }
   .section-title { font-weight: 700; font-size: 15px; margin: 18px 0 10px; }
 
   .tabbar {
-    position: fixed; bottom: 0; left: 0; right: 0; background: #fff;
-    display: flex; border-top: 1px solid #eee; z-index: 10;
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--card-bg);
+    display: flex; border-top: 1px solid var(--card-border); z-index: 10;
   }
-  .tab { flex: 1; text-align: center; padding: 10px 0 8px; cursor: pointer; color: #999; font-size: 11px; font-weight: 600; }
+  .tab { flex: 1; text-align: center; padding: 10px 0 8px; cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 600; }
   .tab.active { color: var(--purple); }
   .tab svg { display: block; margin: 0 auto 3px; width: 22px; height: 22px; }
 
-  .verify-banner { background: #FFF3E0; border: 1px solid #F2C94C; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
-  .verify-banner h3 { color: #8A6100; margin-bottom: 6px; }
-  .verify-banner p { font-size: 13px; color: #6B5000; line-height: 1.6; margin-bottom: 10px; }
-  .doc-list { font-size: 13px; color: #6B5000; margin: 8px 0 12px; padding-left: 18px; }
+  .verify-banner { background: #2E2410; border: 1px solid #6B5000; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .verify-banner h3 { color: var(--gold); margin-bottom: 6px; }
+  .verify-banner p { font-size: 13px; color: #D6C88A; line-height: 1.6; margin-bottom: 10px; }
+  .doc-list { font-size: 13px; color: #D6C88A; margin: 8px 0 12px; padding-left: 18px; }
   .doc-list li { margin-bottom: 4px; }
 
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex;
     align-items: flex-end; z-index: 100;
   }
-  .modal-sheet { background: #fff; border-radius: 20px 20px 0 0; padding: 22px; width: 100%; max-width: 480px; margin: 0 auto; }
+  .modal-sheet { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 20px 20px 0 0; padding: 22px; width: 100%; max-width: 480px; margin: 0 auto; }
   .modal-sheet h3 { margin-bottom: 14px; }
   .reason-option {
     display: block; width: 100%; text-align: left; padding: 13px; margin-bottom: 8px;
-    border: 1px solid #ddd; border-radius: 10px; background: #fff; font-size: 14px;
+    border: 1px solid var(--card-border); border-radius: 10px; background: #0F0D14; font-size: 14px; color: var(--text);
   }
-  .reason-option:active { background: #F0EBFA; border-color: var(--purple); }
+  .reason-option:active { background: #2A2440; border-color: var(--purple); }
 
-  .trip-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .trip-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--card-border); font-size: 13px; }
   .trip-row:last-child { border-bottom: none; }
 
   .qr-box { text-align: center; margin: 14px 0; }
-  .qr-box img { width: 200px; height: 200px; border-radius: 10px; border: 1px solid #eee; }
-  .upi-id-box { background: #F0EBFA; padding: 10px; border-radius: 8px; text-align: center; font-weight: 600; margin: 10px 0; font-size: 14px; }
+  .qr-box img { width: 200px; height: 200px; border-radius: 10px; border: 1px solid var(--card-border); background: #fff; padding: 8px; }
+  .upi-id-box { background: #2A2440; padding: 10px; border-radius: 8px; text-align: center; font-weight: 600; margin: 10px 0; font-size: 14px; color: var(--purple-light); }
 
   .credit-line { text-align: center; font-size: 12px; color: #aaa; margin: 24px 0 10px; }
 </style>
@@ -155,7 +159,7 @@
 
 <div id="authScreen" style="display:none; max-width:400px; margin:60px auto 0; padding:0 20px;">
   <div style="text-align:center; margin-bottom:20px;">
-    <div style="font-family:'Poppins',sans-serif; font-weight:700; font-size:22px; color:var(--purple-deep);">GOGUWAHATI</div>
+    <div style="font-family:'Poppins',sans-serif; font-weight:700; font-size:22px; color:var(--text);">GOGUWAHATI</div>
     <div style="font-size:13px; color:#888;">Driver</div>
   </div>
   <div class="card">
@@ -383,7 +387,15 @@ function loadDriverProfile() {
   });
 }
 
-function isVerified() { return driverProfile && driverProfile.verified === true; }
+function isVerified() {
+  if (!driverProfile || driverProfile.verified !== true) return false;
+  // If verifiedAt is set, verification is valid for 1 year unless admin re-flags for review
+  if (driverProfile.verifiedAt) {
+    const oneYearMs = 365 * 24 * 60 * 60 * 1000;
+    return (Date.now() - driverProfile.verifiedAt) < oneYearMs;
+  }
+  return true; // legacy verified drivers without a timestamp stay verified until admin acts
+}
 function isPassActive() { return driverProfile && driverProfile.passExpiresAt && driverProfile.passExpiresAt > Date.now(); }
 
 // ================= HOME TAB =================
@@ -513,6 +525,7 @@ function renderVerificationPending() {
       <p>To activate your driver account, send clear photos of the following to our WhatsApp for verification:</p>
       <ul class="doc-list">
         <li>Driving Licence</li>
+        <li>Vehicle Registration Certificate (RC)</li>
         <li>Vehicle Insurance</li>
         <li>Fitness Certificate</li>
         <li>Pollution Certificate (PUC)</li>
@@ -632,22 +645,22 @@ function renderRequests(requests) {
       actionHtml = `<div style="color:#888; font-size:13px; padding:8px 0;">Waiting for rider's response on your ₹${myOffer.amount} offer…</div>`;
     } else if (myOffer && myOffer.status === 'pending' && myOffer.proposedBy === 'rider') {
       actionHtml = `
-        <div style="background:#F0EBFA; border-radius:8px; padding:10px; margin-bottom:10px; font-size:13px;">
+        <div style="background:#2A2440; border-radius:8px; padding:10px; margin-bottom:10px; font-size:13px; color:var(--text);">
           Rider countered: <strong>₹${myOffer.amount}</strong>
         </div>
         <div class="btn-row">
-          <button style="background:#eee; color:#555;" onclick="declineOffer('${id}')">Decline</button>
+          <button style="background:#2A2732; color:#D6D2E0;" onclick="declineOffer('${id}')">Decline</button>
           <button style="background:var(--purple); color:#fff;" onclick="acceptAtAmount('${id}', ${myOffer.amount})">Accept ₹${myOffer.amount}</button>
         </div>
-        <button style="width:100%; margin-top:8px; background:#F0EBFA; color:var(--purple); border:none; padding:10px; border-radius:8px; font-weight:600;" onclick="openCounterInput('${id}', this)">Counter Again</button>
+        <button style="width:100%; margin-top:8px; background:#2A2440; color:var(--purple-light); border:none; padding:10px; border-radius:8px; font-weight:600;" onclick="openCounterInput('${id}', this)">Counter Again</button>
       `;
     } else {
       actionHtml = `
         <div class="btn-row">
-          <button style="background:#eee; color:#555;" onclick="this.closest('.req-card').remove()">Skip</button>
+          <button style="background:#2A2732; color:#D6D2E0;" onclick="this.closest('.req-card').remove()">Skip</button>
           <button style="background:var(--purple); color:#fff;" onclick="acceptAtAmount('${id}', ${r.fareOffer})">Accept ₹${r.fareOffer}</button>
         </div>
-        <button style="width:100%; margin-top:8px; background:#F0EBFA; color:var(--purple); border:none; padding:10px; border-radius:8px; font-weight:600;" onclick="openCounterInput('${id}', this)">Counter Offer</button>
+        <button style="width:100%; margin-top:8px; background:#2A2440; color:var(--purple-light); border:none; padding:10px; border-radius:8px; font-weight:600;" onclick="openCounterInput('${id}', this)">Counter Offer</button>
       `;
     }
 
@@ -858,7 +871,7 @@ function renderMenu() {
 
   tabMenu.innerHTML = `
     <div class="card tight" style="display:flex; gap:14px; align-items:center;">
-      ${driverProfile.photoBase64 ? `<img src="${driverProfile.photoBase64}" style="width:60px; height:60px; border-radius:50%; object-fit:cover;">` : `<div style="width:60px; height:60px; border-radius:50%; background:#F0EBFA; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--purple); font-size:22px;">${driverProfile.name.charAt(0)}</div>`}
+      ${driverProfile.photoBase64 ? `<img src="${driverProfile.photoBase64}" style="width:60px; height:60px; border-radius:50%; object-fit:cover;">` : `<div style="width:60px; height:60px; border-radius:50%; background:#2A2440; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--purple-light); font-size:22px;">${driverProfile.name.charAt(0)}</div>`}
       <div>
         <div style="font-weight:700; font-size:16px;">${driverProfile.name}</div>
         <div style="font-size:13px; color:#888; margin-top:2px;">${driverProfile.phone}</div>
@@ -872,10 +885,10 @@ function renderMenu() {
       <div style="font-size:13px; color:#888; margin:6px 0 12px;">${passInfo}</div>
       <div class="qr-box"><img src="${qrUrl}" alt="UPI QR Code"></div>
       <div class="upi-id-box">${UPI_ID}</div>
-      <label>UPI Transaction Reference (after paying)</label>
+      <label>Transaction Reference <span style="color:var(--text-muted); font-weight:400;">(optional — helps us confirm faster)</span></label>
       <input id="txnRef" type="text" placeholder="e.g. 123456789012">
-      <button class="pill-btn btn-purple" style="margin-top:12px;" id="btnSubmitRecharge">Submit for Verification</button>
-      <div style="font-size:12px; color:#999; margin-top:8px; text-align:center;">We'll confirm and activate your pass shortly after payment.</div>
+      <button class="pill-btn btn-gold" style="margin-top:12px;" id="btnSubmitRecharge">✅ I've Paid ₹${PASS_AMOUNT}</button>
+      <div style="font-size:12px; color:#999; margin-top:8px; text-align:center;">We'll confirm your payment and activate your pass shortly.</div>
     </div>
 
     <div class="card tight">
@@ -897,12 +910,11 @@ function renderMenu() {
 
   document.getElementById('btnSubmitRecharge').addEventListener('click', () => {
     const txn = document.getElementById('txnRef').value.trim();
-    if (!txn) { alert('Please enter your transaction reference.'); return; }
     db.ref('rechargeRequests').push({
       driverId, driverName: driverProfile.name, driverPhone: driverProfile.phone,
-      amount: PASS_AMOUNT, txnRef: txn, status: 'pending', submittedAt: Date.now()
+      amount: PASS_AMOUNT, txnRef: txn || null, status: 'pending', submittedAt: Date.now()
     }).then(() => {
-      alert('Submitted! Your pass will be activated once payment is confirmed.');
+      alert('Thanks! Your pass will be activated once your payment is confirmed.');
       document.getElementById('txnRef').value = '';
     });
   });
