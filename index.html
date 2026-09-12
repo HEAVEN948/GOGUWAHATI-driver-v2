@@ -206,7 +206,7 @@
     <div class="hero-top">
       <div class="brand-row">
         <svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="var(--gold)"/><path d="M5 15l1.2-3.6A2 2 0 0 1 8.1 10h7.8a2 2 0 0 1 1.9 1.4L19 15" stroke="#241436" stroke-width="1.6" fill="none" stroke-linecap="round"/><rect x="4" y="15" width="16" height="4" rx="1.5" fill="#241436"/><circle cx="7.5" cy="19" r="1.6" fill="var(--gold)"/><circle cx="16.5" cy="19" r="1.6" fill="var(--gold)"/></svg>
-        GOGUWAHATI
+        GOGUWAHATI <span style="opacity:0.7; font-weight:500;">Partner</span>
       </div>
       <div id="shareInstallBtns" style="display:flex; gap:6px;">
         <button id="btnInstallHeader" title="Install App" style="background:rgba(255,255,255,0.15); border:none; width:32px; height:32px; border-radius:8px; color:#fff; font-size:15px;">📲</button>
@@ -285,10 +285,25 @@ const appShell = document.getElementById('appShell');
 heroStatus.textContent = 'Connecting…';
 
 // ================= SOUND ALERTS (Web Audio, no files needed) =================
+// IMPORTANT: browsers block audio from playing unless it was started as a
+// direct result of a user tap/click. A new-ride event arriving later from
+// Firebase does NOT count as a tap, so without "unlocking" the AudioContext
+// during an actual tap first, playNewRequestSound() plays silently.
+// audioUnlocked / unlockAudio() fix that by creating + resuming the context
+// the moment the driver taps something (login, go online, anywhere on screen).
 let audioCtx;
+let audioUnlocked = false;
 function getCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
+}
+function unlockAudio() {
+  if (audioUnlocked) return;
+  const ctx = getCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  // Play a near-silent blip so iOS/Android fully commits the unlock.
+  playTone(440, 0.01, 0);
+  audioUnlocked = true;
 }
 function playTone(freq, duration, delay, type='sine') {
   const ctx = getCtx();
@@ -314,6 +329,29 @@ function playCancelSound() {
   playTone(400, 0.3, 0, 'sawtooth');
   playTone(280, 0.4, 0.28, 'sawtooth');
 }
+
+// Ringtone-style repeat: keeps beeping every few seconds while there is at
+// least one un-responded incoming request, so a booking is never missed.
+let requestRingInterval = null;
+function startRequestRing() {
+  if (requestRingInterval) return;
+  playNewRequestSound();
+  requestRingInterval = setInterval(() => {
+    if (!isOnline || activeRideId || knownRequestIds.size === 0) {
+      stopRequestRing();
+      return;
+    }
+    playNewRequestSound();
+  }, 4000);
+}
+function stopRequestRing() {
+  if (requestRingInterval) { clearInterval(requestRingInterval); requestRingInterval = null; }
+}
+
+// Unlock audio on the very first tap anywhere, plus explicitly on the
+// login/register/go-online buttons (added further down at each listener).
+document.addEventListener('click', unlockAudio, { once: true });
+document.addEventListener('touchstart', unlockAudio, { once: true });
 
 // ================= TAB SWITCHING =================
 function switchTab(tab) {
@@ -352,6 +390,7 @@ document.getElementById('linkToRegister').addEventListener('click', () => showAu
 document.getElementById('linkToLogin').addEventListener('click', () => showAuthMode('login'));
 
 document.getElementById('btnDoLogin').addEventListener('click', () => {
+  unlockAudio();
   const email = document.getElementById('loginEmailInput').value.trim();
   const pass = document.getElementById('loginPassInput').value;
   const errEl = document.getElementById('authError');
@@ -363,6 +402,7 @@ document.getElementById('btnDoLogin').addEventListener('click', () => {
 });
 
 document.getElementById('btnDoRegister').addEventListener('click', () => {
+  unlockAudio();
   const email = document.getElementById('regEmailInput').value.trim();
   const pass = document.getElementById('regPassInput').value;
   const errEl = document.getElementById('authError');
@@ -586,8 +626,10 @@ function renderHomeActive() {
   const btnToggle = document.getElementById('btnToggle');
   if (btnToggle) {
     btnToggle.addEventListener('click', () => {
+      unlockAudio(); // going online is a direct tap — unlock audio here so later Firebase-triggered sounds actually play
       isOnline = !isOnline;
       db.ref('drivers/' + driverId).update({ online: isOnline, lastSeen: Date.now() });
+      if (!isOnline) stopRequestRing();
       renderHome();
       if (isOnline && !activeRideId) {
         document.getElementById('incomingTitle').style.display = 'block';
@@ -616,9 +658,10 @@ function listenForRequests() {
 
       if (!firstRequestsLoad) {
         const newOnes = ids.filter(id => !knownRequestIds.has(id));
-        if (newOnes.length > 0) playNewRequestSound();
+        if (newOnes.length > 0) startRequestRing();
       }
       knownRequestIds = new Set(ids);
+      if (ids.length === 0) stopRequestRing();
       firstRequestsLoad = false;
 
       renderRequests(requests);
@@ -704,6 +747,7 @@ function declineOffer(id) {
 }
 
 function acceptAtAmount(id, amount) {
+  stopRequestRing();
   db.ref('rideRequests/' + id).transaction(current => {
     if (current && current.status === 'requested') {
       current.status = 'accepted';
@@ -751,9 +795,20 @@ function renderActiveRide(id, ride) {
   const section = document.getElementById('activeRideSection');
   if (!section) return;
 
-  const mapsLink = (ride.pickupLat && ride.pickupLng)
-    ? `https://www.google.com/maps/search/?api=1&query=${ride.pickupLat},${ride.pickupLng}`
-    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ride.pickup)}`;
+  // While riding to pickup, "Open in Maps" points at the pickup location.
+  // The instant the driver taps "Mark Picked Up", updateRideStatus() flips
+  // ride.status to in_progress and this function re-renders (live Firebase
+  // listener above), so the very next render automatically swaps this link
+  // to point at the destination instead — no extra search needed.
+  const destinationPhase = ride.status === 'in_progress' || ride.status === 'completed';
+  const mapsLink = destinationPhase
+    ? ((ride.destinationLat && ride.destinationLng)
+        ? `https://www.google.com/maps/search/?api=1&query=${ride.destinationLat},${ride.destinationLng}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ride.destination)}`)
+    : ((ride.pickupLat && ride.pickupLng)
+        ? `https://www.google.com/maps/search/?api=1&query=${ride.pickupLat},${ride.pickupLng}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ride.pickup)}`);
+  const mapsLabel = destinationPhase ? '📍 Navigate to Drop-off' : '📍 Navigate to Pickup';
 
   const nextAction = ride.status === 'accepted'
     ? `<button class="pill-btn btn-purple" onclick="updateRideStatus('${id}','in_progress')">Mark Picked Up</button>`
@@ -773,7 +828,7 @@ function renderActiveRide(id, ride) {
       <div class="action-grid">
         <a href="tel:${ride.riderPhone}" class="btn-call">📞 Call</a>
         <a href="https://wa.me/${ride.riderPhone}" target="_blank" class="btn-wa">💬 WhatsApp</a>
-        <a href="${mapsLink}" target="_blank" class="btn-map">📍 Open in Maps</a>
+        <a href="${mapsLink}" target="_blank" class="btn-map">${mapsLabel}</a>
         <button class="btn-cancel" onclick="openCancelModal('${id}')">✕ Cancel Ride</button>
       </div>
       <div style="margin-top:12px;">${nextAction}</div>
@@ -966,26 +1021,29 @@ function setupInstallShare(installBtnId, shareBtnId, noteId) {
   }
 }
 
-// ================= PWA MANIFEST (car + Mi icon) =================
+// ================= PWA MANIFEST (GOLD theme = Driver/Partner app) =================
+// Driver app now uses a GOLD background with the purple car mark (inverse of
+// the rider app's purple background), so the two icons are unmistakable on
+// a home screen at a glance.
 const carIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#241436"/>
-  <rect width="512" height="512" rx="96" fill="url(#g)" opacity="0.4"/>
-  <defs><linearGradient id="g" x1="0" y1="0" x2="512" y2="512"><stop stop-color="#6D3FC7"/><stop offset="1" stop-color="#241436"/></linearGradient></defs>
+  <rect width="512" height="512" rx="96" fill="#F2B705"/>
+  <rect width="512" height="512" rx="96" fill="url(#g)" opacity="0.35"/>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="512" y2="512"><stop stop-color="#FFD84D"/><stop offset="1" stop-color="#C79200"/></linearGradient></defs>
   <g transform="translate(96,180)">
-    <path d="M20 120 L40 60 A30 30 0 0 1 68 40 L252 40 A30 30 0 0 1 280 60 L300 120" stroke="#F2B705" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="10" y="120" width="300" height="55" rx="18" fill="#F2B705"/>
-    <circle cx="75" cy="178" r="26" fill="#241436"/><circle cx="75" cy="178" r="12" fill="#F2B705"/>
-    <circle cx="245" cy="178" r="26" fill="#241436"/><circle cx="245" cy="178" r="12" fill="#F2B705"/>
+    <path d="M20 120 L40 60 A30 30 0 0 1 68 40 L252 40 A30 30 0 0 1 280 60 L300 120" stroke="#241436" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="10" y="120" width="300" height="55" rx="18" fill="#241436"/>
+    <circle cx="75" cy="178" r="26" fill="#F2B705"/><circle cx="75" cy="178" r="12" fill="#241436"/>
+    <circle cx="245" cy="178" r="26" fill="#F2B705"/><circle cx="245" cy="178" r="12" fill="#241436"/>
   </g>
-  <text x="256" y="440" font-family="Poppins, sans-serif" font-weight="700" font-size="46" fill="#fff" text-anchor="middle">Mi</text>
+  <text x="256" y="440" font-family="Poppins, sans-serif" font-weight="700" font-size="46" fill="#241436" text-anchor="middle">Partner</text>
 </svg>`;
 const manifest = {
   name: "GOGUWAHATI Driver",
-  short_name: "GOGUWAHATI",
+  short_name: "GG Partner",
   start_url: ".",
   display: "standalone",
   background_color: "#241436",
-  theme_color: "#241436",
+  theme_color: "#F2B705",
   icons: [{
     src: "data:image/svg+xml," + encodeURIComponent(carIconSvg),
     sizes: "512x512",
