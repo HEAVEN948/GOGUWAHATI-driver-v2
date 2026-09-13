@@ -810,8 +810,14 @@ function renderActiveRide(id, ride) {
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ride.pickup)}`);
   const mapsLabel = destinationPhase ? '📍 Navigate to Drop-off' : '📍 Navigate to Pickup';
 
+  // "Mark Picked Up" now requires the driver to enter the OTP the rider
+  // reads out to them in person — confirms it's genuinely the matched
+  // rider, not a mix-up. Legacy rides booked before this feature (no OTP
+  // saved) skip straight through instead of getting permanently stuck.
   const nextAction = ride.status === 'accepted'
-    ? `<button class="pill-btn btn-purple" onclick="updateRideStatus('${id}','in_progress')">Mark Picked Up</button>`
+    ? (ride.otp
+        ? `<button class="pill-btn btn-purple" onclick="openOtpModal('${id}','${ride.otp}')">Mark Picked Up</button>`
+        : `<button class="pill-btn btn-purple" onclick="updateRideStatus('${id}','in_progress')">Mark Picked Up</button>`)
     : ride.status === 'in_progress'
     ? `<button class="pill-btn btn-purple" onclick="updateRideStatus('${id}','completed')">Complete Ride</button>`
     : '';
@@ -831,6 +837,7 @@ function renderActiveRide(id, ride) {
         <a href="${mapsLink}" target="_blank" class="btn-map">${mapsLabel}</a>
         <button class="btn-cancel" onclick="openCancelModal('${id}')">✕ Cancel Ride</button>
       </div>
+      <button onclick="openChatModal('${id}','driver','${ride.riderName}')" style="width:100%; margin-top:10px; padding:11px; border-radius:8px; border:none; background:var(--purple); color:#fff; font-weight:700; font-size:14px;">💬 Chat with Rider</button>
       <div style="margin-top:12px;">${nextAction}</div>
     </div>
   `;
@@ -840,7 +847,103 @@ function updateRideStatus(id, status) {
   db.ref('rideRequests/' + id).update({ status, [status + 'At']: Date.now() });
 }
 
-// ================= CANCEL MODAL =================
+// ================= OTP VERIFICATION (pickup confirmation) =================
+function openOtpModal(id, expectedOtp) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-sheet">
+      <h3>Enter Pickup OTP</h3>
+      <div style="font-size:13px; color:var(--text-muted); margin-bottom:14px; line-height:1.5;">Ask the rider for their 4-digit OTP to confirm you have the right passenger before starting the ride.</div>
+      <input id="otpInput" type="tel" inputmode="numeric" maxlength="4" placeholder="4-digit OTP" style="text-align:center; font-size:24px; letter-spacing:10px; font-weight:700;">
+      <div id="otpError" style="color:var(--danger); font-size:13px; margin-top:8px; text-align:center; min-height:18px;"></div>
+      <button class="pill-btn btn-purple" id="btnConfirmOtp" style="margin-top:12px;">Confirm &amp; Start Ride</button>
+      <button class="reason-option" style="text-align:center; color:#999; border:none; margin-top:10px;" id="btnCancelOtp">Never mind</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector('#otpInput');
+  input.focus();
+  overlay.querySelector('#btnConfirmOtp').addEventListener('click', () => {
+    const val = input.value.trim();
+    if (val === String(expectedOtp)) {
+      overlay.remove();
+      updateRideStatus(id, 'in_progress');
+    } else {
+      overlay.querySelector('#otpError').textContent = 'Incorrect OTP — please double-check with the rider.';
+    }
+  });
+  overlay.querySelector('#btnCancelOtp').addEventListener('click', () => overlay.remove());
+}
+
+// ================= IN-RIDE CHAT =================
+// Mirrors the rider app's chat — same shared rideRequests/{id}/messages
+// node in Firebase, so messages sent from either side appear on both.
+let activeChatMsgsRef = null;
+
+function openChatModal(id, myRole, otherName) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-sheet" style="display:flex; flex-direction:column; max-height:82vh;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">Chat with ${otherName}</h3>
+        <button id="btnCloseChat" style="background:none; border:none; font-size:22px; color:var(--text-muted); line-height:1;">✕</button>
+      </div>
+      <div id="chatMessages" style="flex:1; overflow-y:auto; min-height:180px; max-height:48vh; display:flex; flex-direction:column; gap:8px; padding:4px 2px;"></div>
+      <div style="display:flex; gap:6px; margin-top:12px;">
+        <button id="btnShareChatLocation" title="Share current location" style="padding:0 14px; border:none; border-radius:8px; background:#2A2440; color:var(--purple-light); font-size:17px;">📍</button>
+        <input id="chatInput" type="text" placeholder="Type a message…" style="flex:1;">
+        <button id="btnSendChat" style="padding:0 18px; border:none; border-radius:8px; background:var(--purple); color:#fff; font-weight:700;">Send</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const msgsContainer = overlay.querySelector('#chatMessages');
+  activeChatMsgsRef = db.ref('rideRequests/' + id + '/messages');
+  activeChatMsgsRef.on('value', snap => {
+    const msgs = snap.val() || {};
+    const sorted = Object.values(msgs).sort((a, b) => a.ts - b.ts);
+    msgsContainer.innerHTML = sorted.length
+      ? sorted.map(m => renderChatBubble(m, myRole)).join('')
+      : '<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:24px 10px;">No messages yet — say hello, or share your location if there\'s any confusion finding each other.</div>';
+    msgsContainer.scrollTop = msgsContainer.scrollHeight;
+  });
+
+  function sendChatMessage(text, mapsLink) {
+    if (!text && !mapsLink) return;
+    activeChatMsgsRef.push({ sender: myRole, text: text || '', mapsLink: mapsLink || null, ts: Date.now() });
+  }
+
+  overlay.querySelector('#btnSendChat').addEventListener('click', () => {
+    const inputEl = overlay.querySelector('#chatInput');
+    const text = inputEl.value.trim();
+    if (text) { sendChatMessage(text); inputEl.value = ''; }
+  });
+  overlay.querySelector('#chatInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') overlay.querySelector('#btnSendChat').click();
+  });
+  overlay.querySelector('#btnShareChatLocation').addEventListener('click', () => {
+    if (!navigator.geolocation) { alert('GPS not supported on this device/browser.'); return; }
+    navigator.geolocation.getCurrentPosition(pos => {
+      const link = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
+      sendChatMessage('📍 Shared current location', link);
+    }, () => alert('Could not get your current location. Please check location permission.'));
+  });
+  overlay.querySelector('#btnCloseChat').addEventListener('click', () => {
+    if (activeChatMsgsRef) { activeChatMsgsRef.off(); activeChatMsgsRef = null; }
+    overlay.remove();
+  });
+}
+
+function renderChatBubble(m, myRole) {
+  const isMine = m.sender === myRole;
+  const bubbleBg = isMine ? 'var(--purple)' : '#2A2440';
+  const textColor = '#fff';
+  const linkColor = isMine ? '#fff' : 'var(--purple-light)';
+  const linkHtml = m.mapsLink ? `<br><a href="${m.mapsLink}" target="_blank" style="color:${linkColor}; text-decoration:underline; font-weight:700;">Open in Google Maps</a>` : '';
+  const safeText = (m.text || '').replace(/</g, '&lt;');
+  return `<div style="align-self:${isMine ? 'flex-end' : 'flex-start'}; max-width:80%; background:${bubbleBg}; color:${textColor}; padding:9px 13px; border-radius:14px; font-size:14px; line-height:1.4;">${safeText}${linkHtml}</div>`;
+}
 function openCancelModal(id) {
   const reasons = ['Passenger not reachable', 'Passenger cancelled verbally', 'Fake booking', 'Other'];
   const overlay = document.createElement('div');
