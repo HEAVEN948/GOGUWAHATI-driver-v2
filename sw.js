@@ -20,7 +20,7 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.pathname.endsWith('/manifest.json')) {
-    event.respondWith(new Response(MANIFEST_JSON, {
+    event.respondWith(new Response(JSON.stringify(MANIFEST_JSON), {
       headers: { 'Content-Type': 'application/manifest+json' }
     }));
     return;
