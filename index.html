@@ -270,6 +270,13 @@ const UPI_ID = "9126183927@ibl";
 const PASS_AMOUNT = 5;
 const PASS_DURATION_MS = 24 * 60 * 60 * 1000;
 
+// LAUNCH PROMO SWITCH: while true, every driver can go online for free —
+// no pass required, no payment screen shown. Flip this back to false
+// whenever you're ready to start charging again; everything else (the QR
+// code, UPI flow, admin pass-approval tools) is untouched and will resume
+// working immediately, no other changes needed.
+const FREE_LAUNCH_MODE = true;
+
 // ================= STATE =================
 let driverId = null; // now set to Firebase Auth UID after login
 let driverProfile = null; // loaded from Firebase
@@ -446,7 +453,7 @@ function isVerified() {
   }
   return true; // legacy verified drivers without a timestamp stay verified until admin acts
 }
-function isPassActive() { return driverProfile && driverProfile.passExpiresAt && driverProfile.passExpiresAt > Date.now(); }
+function isPassActive() { return FREE_LAUNCH_MODE || (driverProfile && driverProfile.passExpiresAt && driverProfile.passExpiresAt > Date.now()); }
 
 // ================= HOME TAB =================
 function renderHome() {
@@ -595,7 +602,17 @@ function renderVerificationPending() {
 function renderHomeActive() {
   const passActive = isPassActive();
   let passHtml = '';
-  if (passActive) {
+  if (FREE_LAUNCH_MODE) {
+    passHtml = `
+      <div class="card tight pass-card">
+        <div>
+          <span class="pass-badge pass-active">Free</span>
+          <div style="font-weight:700; margin-top:6px;">Launch Period</div>
+          <div style="font-size:12px; color:#888;">All rides free to accept — no pass needed right now</div>
+        </div>
+      </div>
+    `;
+  } else if (passActive) {
     const hrsLeft = Math.max(0, Math.round((driverProfile.passExpiresAt - Date.now()) / 3600000));
     passHtml = `
       <div class="card tight pass-card">
@@ -807,14 +824,54 @@ function watchActiveRide(id) {
         playCancelSound();
       }
       stopChatNotifications();
+      stopLocationSharing();
       activeRideId = null;
       localStorage.removeItem('gg_activeRideId');
       renderHome();
       return;
     }
     startChatNotifications(id);
+    startLocationSharing(id);
     renderActiveRide(id, ride);
   });
+}
+
+// ================= LIVE LOCATION SHARING =================
+// While a ride is accepted or in progress, continuously (but not too
+// frequently — every ~6 seconds) writes the driver's GPS position to this
+// ride's record, so the rider can see a live distance readout and open a
+// map showing exactly where the driver currently is. Free — just the
+// browser's built-in GPS, no maps API involved. Stops automatically the
+// moment the ride ends, and only runs while this app is open (same as any
+// web app — GPS can't be read once the app is fully closed).
+let locationWatchId = null;
+let locationSharingRideId = null;
+let lastLocationWriteAt = 0;
+
+function startLocationSharing(id) {
+  if (locationSharingRideId === id) return; // already sharing for this ride
+  stopLocationSharing();
+  if (!navigator.geolocation) return;
+  locationSharingRideId = id;
+  locationWatchId = navigator.geolocation.watchPosition(pos => {
+    const now = Date.now();
+    if (now - lastLocationWriteAt < 6000) return; // throttle writes
+    lastLocationWriteAt = now;
+    db.ref('rideRequests/' + id).update({
+      driverLiveLat: pos.coords.latitude,
+      driverLiveLng: pos.coords.longitude,
+      driverLiveUpdatedAt: now
+    });
+  }, err => console.warn('Location watch error:', err.message), {
+    enableHighAccuracy: true, maximumAge: 5000, timeout: 15000
+  });
+}
+function stopLocationSharing() {
+  if (locationWatchId !== null) {
+    navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId = null;
+  }
+  locationSharingRideId = null;
 }
 
 // Plays a short alert whenever the rider sends a new chat message, even if
@@ -1077,6 +1134,22 @@ function renderMenu() {
   const upiLink = `upi://pay?pa=${UPI_ID}&pn=GOGUWAHATI&am=${PASS_AMOUNT}&cu=INR&tn=DailyPass`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiLink)}`;
 
+  const passSectionHtml = FREE_LAUNCH_MODE
+    ? `<div class="card tight">
+         <div style="font-weight:700;">🎉 Free Launch Period</div>
+         <div style="font-size:13px; color:#888; margin-top:8px; line-height:1.6;">All rides are free to accept right now while we're just getting started — no daily pass needed. We'll give you notice before any charges begin.</div>
+       </div>`
+    : `<div class="card tight">
+         <div style="font-weight:700;">Daily Pass — ₹${PASS_AMOUNT}/24hr</div>
+         <div style="font-size:13px; color:#888; margin:6px 0 12px;">${passInfo}</div>
+         <div class="qr-box"><img src="${qrUrl}" alt="UPI QR Code"></div>
+         <div class="upi-id-box">${UPI_ID}</div>
+         <label>Transaction Reference <span style="color:var(--text-muted); font-weight:400;">(optional — helps us confirm faster)</span></label>
+         <input id="txnRef" type="text" placeholder="e.g. 123456789012">
+         <button class="pill-btn btn-gold" style="margin-top:12px;" id="btnSubmitRecharge">✅ I've Paid ₹${PASS_AMOUNT}</button>
+         <div style="font-size:12px; color:#999; margin-top:8px; text-align:center;">We'll confirm your payment and activate your pass shortly.</div>
+       </div>`;
+
   tabMenu.innerHTML = `
     <div class="card tight" style="display:flex; gap:14px; align-items:center;">
       ${driverProfile.photoBase64 ? `<img src="${driverProfile.photoBase64}" style="width:60px; height:60px; border-radius:50%; object-fit:cover;">` : `<div style="width:60px; height:60px; border-radius:50%; background:#2A2440; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--purple-light); font-size:22px;">${driverProfile.name.charAt(0)}</div>`}
@@ -1088,16 +1161,7 @@ function renderMenu() {
       </div>
     </div>
 
-    <div class="card tight">
-      <div style="font-weight:700;">Daily Pass — ₹${PASS_AMOUNT}/24hr</div>
-      <div style="font-size:13px; color:#888; margin:6px 0 12px;">${passInfo}</div>
-      <div class="qr-box"><img src="${qrUrl}" alt="UPI QR Code"></div>
-      <div class="upi-id-box">${UPI_ID}</div>
-      <label>Transaction Reference <span style="color:var(--text-muted); font-weight:400;">(optional — helps us confirm faster)</span></label>
-      <input id="txnRef" type="text" placeholder="e.g. 123456789012">
-      <button class="pill-btn btn-gold" style="margin-top:12px;" id="btnSubmitRecharge">✅ I've Paid ₹${PASS_AMOUNT}</button>
-      <div style="font-size:12px; color:#999; margin-top:8px; text-align:center;">We'll confirm your payment and activate your pass shortly.</div>
-    </div>
+    ${passSectionHtml}
 
     <div class="card tight">
       <button class="pill-btn btn-outline" id="btnInstallMenu">📲 Install App</button>
@@ -1116,16 +1180,18 @@ function renderMenu() {
     if (confirm('Logout of your driver account?')) auth.signOut();
   });
 
-  document.getElementById('btnSubmitRecharge').addEventListener('click', () => {
-    const txn = document.getElementById('txnRef').value.trim();
-    db.ref('rechargeRequests').push({
-      driverId, driverName: driverProfile.name, driverPhone: driverProfile.phone,
-      amount: PASS_AMOUNT, txnRef: txn || null, status: 'pending', submittedAt: Date.now()
-    }).then(() => {
-      alert('Thanks! Your pass will be activated once your payment is confirmed.');
-      document.getElementById('txnRef').value = '';
+  if (!FREE_LAUNCH_MODE) {
+    document.getElementById('btnSubmitRecharge').addEventListener('click', () => {
+      const txn = document.getElementById('txnRef').value.trim();
+      db.ref('rechargeRequests').push({
+        driverId, driverName: driverProfile.name, driverPhone: driverProfile.phone,
+        amount: PASS_AMOUNT, txnRef: txn || null, status: 'pending', submittedAt: Date.now()
+      }).then(() => {
+        alert('Thanks! Your pass will be activated once your payment is confirmed.');
+        document.getElementById('txnRef').value = '';
+      });
     });
-  });
+  }
 
   setupInstallShare('btnInstallMenu', 'btnShareMenu', 'iosInstallNote');
 }
@@ -1140,6 +1206,40 @@ window.addEventListener('beforeinstallprompt', e => {
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent);
 }
+
+// ================= AUTO IOS INSTALL BANNER =================
+// Detects an iPhone/iPad visitor automatically (no need to tap Install
+// first) and shows exact instructions — including the tricky case where
+// they're using Chrome or Firefox on iOS, where "Add to Home Screen" isn't
+// available at all; only Safari can install web apps on iOS.
+function isInStandaloneMode() {
+  return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+}
+function isIOSNonSafariBrowser() {
+  return /CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
+}
+function showIOSInstallBannerIfNeeded() {
+  if (!isIOS() || isInStandaloneMode()) return;
+  if (localStorage.getItem('gg_ios_banner_dismissed') === 'true') return;
+
+  const msg = isIOSNonSafariBrowser()
+    ? `<strong>To install:</strong> iPhone only allows installing apps from <strong>Safari</strong>. Copy this link and open it in Safari, then tap Share → "Add to Home Screen".`
+    : `<strong>To install:</strong> Tap the <strong>Share</strong> icon in Safari, then scroll down and tap <strong>"Add to Home Screen"</strong>.`;
+
+  const banner = document.createElement('div');
+  banner.id = 'iosInstallBanner';
+  banner.style.cssText = 'position:fixed; left:12px; right:12px; bottom:86px; z-index:500; background:var(--card-bg); border:1px solid var(--card-border); color:var(--text); border-radius:14px; padding:14px 16px; box-shadow:0 6px 20px rgba(0,0,0,0.4); font-size:13px; line-height:1.5; display:flex; gap:10px; align-items:flex-start;';
+  banner.innerHTML = `
+    <div style="flex:1;">${msg}</div>
+    <button id="btnDismissIOSBanner" style="background:none; border:none; color:var(--purple-light); font-size:19px; line-height:1; padding:0;">✕</button>
+  `;
+  document.body.appendChild(banner);
+  document.getElementById('btnDismissIOSBanner').addEventListener('click', () => {
+    banner.remove();
+    localStorage.setItem('gg_ios_banner_dismissed', 'true');
+  });
+}
+showIOSInstallBannerIfNeeded();
 
 function setupInstallShare(installBtnId, shareBtnId, noteId) {
   const installBtn = document.getElementById(installBtnId);
