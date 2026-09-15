@@ -285,6 +285,8 @@ let isOnline = false;
 let activeRideId = localStorage.getItem('gg_activeRideId') || null;
 let currentTab = 'home';
 let knownRequestIds = new Set();
+let lastKnownRequests = null;
+let activeCardStatusRefs = [];
 let firstRequestsLoad = true;
 
 const heroStatus = document.getElementById('heroStatus');
@@ -345,6 +347,40 @@ function playCancelSound() {
 function playChatMessageSound() {
   playTone(720, 0.1, 0);
   playTone(960, 0.14, 0.1);
+}
+
+// ================= IDLE-ONLINE LOCATION (for nearby-first matching) =================
+// While online and waiting for requests (not yet on a ride), this quietly
+// tracks the driver's own current position on-device only — nothing is
+// written to Firebase here, it's just used locally to sort/filter the
+// incoming request list so nearby pickups surface first. Free (built-in
+// GPS), starts the moment the driver goes online, stops the moment they go
+// offline.
+let myLat = null, myLng = null;
+let idleLocationWatchId = null;
+function startIdleLocationWatch() {
+  if (idleLocationWatchId !== null || !navigator.geolocation) return;
+  idleLocationWatchId = navigator.geolocation.watchPosition(pos => {
+    myLat = pos.coords.latitude;
+    myLng = pos.coords.longitude;
+    if (isOnline && !activeRideId) renderRequests(lastKnownRequests);
+  }, err => console.warn('Idle location watch error:', err.message), {
+    enableHighAccuracy: true, maximumAge: 15000, timeout: 20000
+  });
+}
+function stopIdleLocationWatch() {
+  if (idleLocationWatchId !== null) {
+    navigator.geolocation.clearWatch(idleLocationWatchId);
+    idleLocationWatchId = null;
+  }
+  myLat = null; myLng = null;
+}
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // Ringtone-style repeat: keeps beeping every few seconds while there is at
@@ -439,6 +475,14 @@ document.getElementById('linkForgotPass').addEventListener('click', () => {
 function loadDriverProfile() {
   db.ref('drivers/' + driverId).on('value', snapshot => {
     driverProfile = snapshot.val() || null;
+    // Trust Firebase as the source of truth for online/offline, not a local
+    // variable — that local variable used to reset to false on every page
+    // reload even though Firebase still correctly remembered the driver as
+    // online, which made a refresh silently (and confusingly) go offline.
+    const wasOnline = isOnline;
+    isOnline = !!(driverProfile && driverProfile.online);
+    if (isOnline && !wasOnline) startIdleLocationWatch();
+    if (!isOnline && wasOnline) stopIdleLocationWatch();
     renderHome();
     if (currentTab === 'menu') renderMenu();
   });
@@ -664,8 +708,10 @@ function renderHomeActive() {
         // the point: a driver who can't actually receive requests should
         // never keep showing as available to riders.
         db.ref('drivers/' + driverId).onDisconnect().update({ online: false, lastSeen: Date.now() });
+        startIdleLocationWatch();
       } else {
         db.ref('drivers/' + driverId).onDisconnect().cancel();
+        stopIdleLocationWatch();
       }
       if (!isOnline) stopRequestRing();
       renderHome();
@@ -702,22 +748,56 @@ function listenForRequests() {
       if (ids.length === 0) stopRequestRing();
       firstRequestsLoad = false;
 
+      lastKnownRequests = requests;
       renderRequests(requests);
     }, err => console.error("Listen error:", err));
+}
+
+// Sorts incoming requests by distance from the driver's current location
+// (nearest first) and prefers ones within 5km. If NONE are within 5km,
+// falls back to showing all of them anyway (nearest-first) rather than
+// hiding bookings just because no one happens to be close — a farther
+// driver is better than no driver.
+function sortAndFilterByProximity(entries) {
+  if (myLat === null || myLng === null) return entries; // no GPS fix yet — show everything, unsorted
+  const withDist = entries.map(([id, r]) => {
+    const dist = (r.pickupLat && r.pickupLng) ? haversineKm(myLat, myLng, r.pickupLat, r.pickupLng) : null;
+    return [id, r, dist];
+  });
+  withDist.sort((a, b) => {
+    if (a[2] === null) return 1;
+    if (b[2] === null) return -1;
+    return a[2] - b[2];
+  });
+  const within5km = withDist.filter(([, , dist]) => dist !== null && dist <= 5);
+  const chosen = within5km.length > 0 ? within5km : withDist;
+  return chosen.map(([id, r, dist]) => [id, r, dist]);
 }
 
 function renderRequests(requests) {
   const list = document.getElementById('requestsList');
   if (!list) return;
+
+  // Detach any per-card "did this get cancelled?" listeners from the
+  // previous render before rebuilding, so they don't pile up over time.
+  activeCardStatusRefs.forEach(ref => ref.off());
+  activeCardStatusRefs = [];
+
   if (!requests) {
     list.innerHTML = '<div class="empty-state">No requests right now</div>';
     return;
   }
+  const sorted = sortAndFilterByProximity(Object.entries(requests));
+  if (sorted.length === 0) {
+    list.innerHTML = '<div class="empty-state">No requests right now</div>';
+    return;
+  }
   list.innerHTML = '';
-  Object.entries(requests).forEach(([id, r]) => {
+  sorted.forEach(([id, r, dist]) => {
     const myOffer = r.offers && r.offers[driverId];
     const card = document.createElement('div');
     card.className = 'req-card';
+    card.dataset.id = id;
 
     let actionHtml;
     if (myOffer && myOffer.status === 'rejected') {
@@ -745,9 +825,13 @@ function renderRequests(requests) {
       `;
     }
 
+    const distLabel = dist !== null && dist !== undefined
+      ? `<span style="color:var(--gold); font-weight:700;">${dist < 1 ? Math.round(dist * 1000) + 'm' : dist.toFixed(1) + 'km'} away</span> · `
+      : '';
+
     card.innerHTML = `
       <div class="req-top">
-        <span>${r.riderName || 'Rider'}</span>
+        <span>${distLabel}${r.riderName || 'Rider'}</span>
         <span class="req-fare">₹${r.fareOffer || '—'}</span>
       </div>
       <div class="req-route">
@@ -757,6 +841,21 @@ function renderRequests(requests) {
       <div class="reqActions">${actionHtml}</div>
     `;
     list.appendChild(card);
+
+    // Real-time safety net: the moment this specific request's status
+    // changes away from "requested" — cancelled by the rider, or accepted
+    // by another driver — remove its card immediately, independent of
+    // whatever the top-level list query does. Guarantees a cancelled ride
+    // never lingers on screen.
+    const statusRef = db.ref('rideRequests/' + id + '/status');
+    statusRef.on('value', snap => {
+      if (snap.val() !== 'requested') {
+        statusRef.off();
+        const el = list.querySelector(`.req-card[data-id="${id}"]`);
+        if (el) el.remove();
+      }
+    });
+    activeCardStatusRefs.push(statusRef);
   });
 }
 
