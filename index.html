@@ -700,17 +700,14 @@ function renderHomeActive() {
       unlockAudio(); // going online is a direct tap — unlock audio here so later Firebase-triggered sounds actually play
       isOnline = !isOnline;
       db.ref('drivers/' + driverId).update({ online: isOnline, lastSeen: Date.now() });
+      // Note: no onDisconnect() auto-offline rule here on purpose — Firebase
+      // treats an ordinary page refresh as a "disconnect" too, which was
+      // incorrectly flipping the driver offline on every reload. Staying
+      // online until an explicit tap of "Go Offline" was the actual goal,
+      // so this now matches that exactly.
       if (isOnline) {
-        // Safety net: if this connection genuinely drops — app force-closed,
-        // phone loses signal, browser crashes — Firebase itself (not our
-        // code) flips online back to false the moment it detects the
-        // disconnect. This can't be skipped or delayed, which is exactly
-        // the point: a driver who can't actually receive requests should
-        // never keep showing as available to riders.
-        db.ref('drivers/' + driverId).onDisconnect().update({ online: false, lastSeen: Date.now() });
         startIdleLocationWatch();
       } else {
-        db.ref('drivers/' + driverId).onDisconnect().cancel();
         stopIdleLocationWatch();
       }
       if (!isOnline) stopRequestRing();
