@@ -771,6 +771,16 @@ function sortAndFilterByProximity(entries) {
   return chosen.map(([id, r, dist]) => [id, r, dist]);
 }
 
+// Only show requests for the vehicle type this driver actually registered
+// (Bike/Auto/Car) — a bike request shouldn't go to a car driver and vice
+// versa. Older requests booked before this feature existed have no
+// vehicleType saved at all, so those are shown to everyone rather than
+// disappearing for existing/legacy bookings.
+function filterByVehicleType(entries) {
+  if (!driverProfile || !driverProfile.vehicleType) return entries;
+  return entries.filter(([, r]) => !r.vehicleType || r.vehicleType === driverProfile.vehicleType);
+}
+
 function renderRequests(requests) {
   const list = document.getElementById('requestsList');
   if (!list) return;
@@ -784,7 +794,8 @@ function renderRequests(requests) {
     list.innerHTML = '<div class="empty-state">No requests right now</div>';
     return;
   }
-  const sorted = sortAndFilterByProximity(Object.entries(requests));
+  const matchingType = filterByVehicleType(Object.entries(requests));
+  const sorted = sortAndFilterByProximity(matchingType);
   if (sorted.length === 0) {
     list.innerHTML = '<div class="empty-state">No requests right now</div>';
     return;
@@ -825,10 +836,11 @@ function renderRequests(requests) {
     const distLabel = dist !== null && dist !== undefined
       ? `<span style="color:var(--gold); font-weight:700;">${dist < 1 ? Math.round(dist * 1000) + 'm' : dist.toFixed(1) + 'km'} away</span> · `
       : '';
+    const vehicleIcon = { Bike: '🏍️', Auto: '🛺', Car: '🚗' }[r.vehicleType] || '';
 
     card.innerHTML = `
       <div class="req-top">
-        <span>${distLabel}${r.riderName || 'Rider'}</span>
+        <span>${distLabel}${r.riderName || 'Rider'}${vehicleIcon ? ' · ' + vehicleIcon : ''}</span>
         <span class="req-fare">₹${r.fareOffer || '—'}</span>
       </div>
       <div class="req-route">
